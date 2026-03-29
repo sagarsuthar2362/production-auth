@@ -25,12 +25,21 @@ export const register = async (req, res) => {
     password: hashedPassword,
   });
 
-  const accessToken = jwt.sign({ id: user._id }, config.JWT_SECRET, {
-    expiresIn: "15m",
-  });
-
   const refreshToken = jwt.sign({ id: user._id }, config.JWT_SECRET, {
     expiresIn: "7d",
+  });
+
+  const refreshTokenHash = await bcrypt.hash(refreshToken, 10);
+
+  const session = await sessionModel.create({
+    user: user._id,
+    refreshTokenHash,
+    userAgent: req.headers["user-agent"],
+    ip: req.ip,
+  });
+
+  const accessToken = jwt.sign({ id: user._id }, config.JWT_SECRET, {
+    expiresIn: "15m",
   });
 
   res.cookie("refreshToken", refreshToken, {
@@ -70,6 +79,7 @@ export const getMe = async (req, res) => {
   });
 };
 
+// here the access token is generated using the refresh token
 export const refreshToken = async (req, res) => {
   const refreshToken = req.cookies.refreshToken;
 
@@ -79,6 +89,19 @@ export const refreshToken = async (req, res) => {
 
   const decoded = jwt.verify(refreshToken, config.JWT_SECRET);
 
+  // here before generating a new access token we need to check if the refresh token is valid and not revoked
+  const refreshTokenHash = await bcrypt.hash(refreshToken, 10);
+
+  const session = await sessionModel.findOne({
+    refreshTokenHash,
+    revoked: false,
+  });
+
+  if (!session) {
+    return res.status(401).json({ message: "Invalid refresh token" });
+  }
+
+  // if the refresh token is valid and not revoked, we can generate a new access token and a new refresh token
   const accessToken = jwt.sign({ id: decoded.id }, config.JWT_SECRET, {
     expiresIn: "15m",
   });
@@ -86,6 +109,12 @@ export const refreshToken = async (req, res) => {
   const newRefreshToken = jwt.sign({ id: decoded.id }, config.JWT_SECRET, {
     expiresIn: "7d",
   });
+
+  // we also need to update the refresh token in the session model
+  const newrefreshTokenHash = await bcrypt.hash(newRefreshToken, 10);
+  
+  session.refreshTokenHash = newrefreshTokenHash;
+  await session.save();
 
   res.cookie("refreshToken", newRefreshToken, {
     httpOnly: true,
@@ -106,6 +135,8 @@ export const logout = async (req, res) => {
   if (!refreshToken) {
     return res.status(400).json({ message: "refresh token not found" });
   }
+
+  const refreshTokenHash = await bcrypt.hash(refreshToken, 10);
 
   const session = await sessionModel.findOne({
     refreshTokenHash,
