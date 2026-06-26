@@ -1,11 +1,12 @@
 import dotenv from "dotenv";
 dotenv.config();
 
-if (!process.env.MONGO_URI) {
-  throw new Error("MONGO_URI is not defined in .env");
-}
-if (!process.env.JWT_SECRET) {
-  throw new Error("JWT_SECRET is not defined in .env");
+const requiredEnvVars = ["MONGO_URI", "JWT_SECRET"];
+
+const missingEnvVars = requiredEnvVars.filter((envVar) => !process.env[envVar]);
+
+if (missingEnvVars.length > 0) {
+  console.error(`Missing required env variables: ${missingEnvVars.join(", ")}`);
 }
 
 const config = {
