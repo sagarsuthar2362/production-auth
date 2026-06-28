@@ -60,7 +60,7 @@ export const register = async (req, res) => {
 };
 
 export const getMe = async (req, res) => {
-  const token = req.headers.authorization.split(" ")[1];
+  const token = req.cookies.refreshToken;
 
   if (!token) {
     return res.status(401).json({ message: "token not found" });
