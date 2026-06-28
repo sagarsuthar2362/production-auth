@@ -1,8 +1,9 @@
 import userModel from "../models/user.model.js";
 import Session from "../models/session.model.js";
-import bcrypt from "bcrypt";
+import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import config from "../config/config.js";
+import bcrypt from "bcrypt";
 
 export const register = async (req, res) => {
   const { username, email, password } = req.body;
@@ -33,7 +34,10 @@ export const register = async (req, res) => {
     expiresIn: "15m",
   });
 
-  const refreshTokenHash = await bcrypt.hash(refreshToken, 10);
+  const refreshTokenHash = crypto
+    .createHash("sha256")
+    .update(refreshToken)
+    .digest("hex");
 
   const session = await Session.create({
     user: user._id,
@@ -66,7 +70,12 @@ export const getMe = async (req, res) => {
     return res.status(401).json({ message: "token not found" });
   }
 
-  const decoded = jwt.verify(token, config.JWT_SECRET);
+  let decoded;
+  try {
+    decoded = jwt.verify(token, config.JWT_SECRET);
+  } catch (err) {
+    return res.status(401).json({ message: "invalid token" });
+  }
 
   const user = await userModel.findById(decoded.id);
 
@@ -90,9 +99,12 @@ export const refreshToken = async (req, res) => {
   const decoded = jwt.verify(refreshToken, config.JWT_SECRET);
 
   // here before generating a new access token we need to check if the refresh token is valid and not revoked
-  const refreshTokenHash = await bcrypt.hash(refreshToken, 10);
+  const refreshTokenHash = crypto
+    .createHash("sha256")
+    .update(refreshToken)
+    .digest("hex");
 
-  const session = await sessionModel.findOne({
+  const session = await Session.findOne({
     refreshTokenHash,
     revoked: false,
   });
@@ -111,7 +123,10 @@ export const refreshToken = async (req, res) => {
   });
 
   // we also need to update the refresh token in the session model
-  const newrefreshTokenHash = await bcrypt.hash(newRefreshToken, 10);
+  const newrefreshTokenHash = crypto
+    .createHash("sha256")
+    .update(newRefreshToken)
+    .digest("hex");
 
   session.refreshTokenHash = newrefreshTokenHash;
   await session.save();
@@ -120,7 +135,7 @@ export const refreshToken = async (req, res) => {
     httpOnly: true,
     sameSite: "strict",
     secure: true,
-    expiresIn: 7 * 24 * 60 * 60 * 1000,
+    maxAge: 7 * 24 * 60 * 60 * 1000,
   });
 
   res.status(200).json({
@@ -136,19 +151,26 @@ export const logout = async (req, res) => {
     return res.status(400).json({ message: "refresh token not found" });
   }
 
-  const refreshTokenHash = await bcrypt.hash(refreshToken, 10);
+  const refreshTokenHash = crypto
+    .createHash("sha256")
+    .update(refreshToken)
+    .digest("hex");
 
-  const session = await sessionModel.findOne({
+  const session = await Session.findOne({
     refreshTokenHash,
     revoked: false,
   });
 
   if (!session) {
-    return res.status(400).json({ message: "invalid refresh token" });
+    return res.status(400).json({
+      message: "invalid refresh token",
+      refreshToken,
+      refreshTokenHash,
+    });
   }
 
   session.revoked = true;
-  await sessionModel.save();
+  await session.save();
 
   res.clearCookie("refreshToken");
 
