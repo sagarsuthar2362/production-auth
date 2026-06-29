@@ -63,6 +63,55 @@ export const register = async (req, res) => {
   });
 };
 
+export const login = async (req, res) => {
+  const { email, password } = req.body;
+
+  const user = await userModel.findOne({ email });
+
+  if (!user) {
+    res
+      .status(400)
+      .json({ success: false, message: "invalid email or password" });
+  }
+
+  const isValid = await bcrypt.compare(password, user.password);
+
+  if (!isValid) {
+    res
+      .status(400)
+      .json({ success: false, message: "invalid email or password" });
+  }
+
+  let refreshToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET);
+  let accessToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET);
+
+  const refreshTokenHash = crypto
+    .createHash("sha256")
+    .update(refreshToken)
+    .digest("hex");
+
+  await Session.create({
+    user: user._id,
+    refreshTokenHash,
+    userAgent: req.headers["user-agent"],
+    ip: req.ip,
+  });
+
+  res.cookie("refreshToken", refreshToken, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "strict",
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  });
+
+  return res.status(200).json({
+    success: true,
+    message: "login succesfull",
+    user,
+    accessToken,
+  });
+};
+
 export const getMe = async (req, res) => {
   const token = req.cookies.refreshToken;
 
